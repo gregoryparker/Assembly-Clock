@@ -1,0 +1,164 @@
+/*
+ * Prelab_11.asm
+ *
+ *  Created: 11/18/2013 1:05:20 PM
+ *   Author: Gregory Parker 109023986
+ */ 
+
+ //setup ports
+	ldi r20, 0b00000011	;1 for output pins, 0 for inputs
+	out ddrc,r20		;program pc0 and pc1 as outputs
+	ldi r20, 0xff		;load 11111111 in r20
+	out ddrd, r20		;program a1 the portd as outputs
+
+.def ticks = r16		;rename r16 as ticks
+.def secs = r17			;remane r17 as secs
+.def mins = r18			;rename r18 as mins
+.def hrs = r19			;rename r19 as hrs
+
+		clr ticks		;clear ticks
+		clr secs		;clear secs
+		clr mins		;clear mins
+		clr hrs			;clear hrs
+
+//setup portb
+		ldi r16,0xfe	;turn pnp transistors off, pullups on 
+		out portb,r16 
+		ldi r16,0b11000111 
+		out ddrb,r16 
+
+tick:
+		sbis pinc,7		;check bit 7 of portc
+		rjmp tick		;jump back if zero
+		inc ticks		;add one to ticks
+		breq seconds	;jump to seconds when ticks equal to 60
+		brne display	;jump to display when ticks does not equal to 60
+
+seconds:
+		clr ticks		;reset ticks to 0
+		inc secs		;add one to secs
+		cpi secs,60		;compare secs to 60
+		breq minutes	;jump to mins when secs equal to 60
+		brne display	;jump to display when secs does not equal 60
+
+display:
+		com secs		;invert secs, replace "1" by "0"  and "0" by "1" (in order to turn on LED)
+		out portd,secs	;copy secs to portd (output)
+		com secs		;invert secs again (change back for the polling loop)
+		sbic pinc,7		;check bit 7 of portc
+		rjmp display	;jump to display if bit 7 equals to "1"
+		rjmp tick		;jump to tick, start over the polling loop, if bit 7 equals to "0"
+		cbi portd,6		;clears bit 6 of port D, enables colon LED
+		cbi portd,7		;clears bit 7 of port D, enables colon LED
+		cbi portb,0		;clears bit 0 of port B, enables binary LEDs and colon LEDs on main display
+		rcall delay_21k	;call delay_21k, save current program address
+		sbi portb,0		;turns off individual LEDs and colon
+		mov r20,hrs		;copy the hours to r20
+		rcall get_segs	;call get_segs, save current program address
+		out ddrd,r21	;moves data from r21 to port D (tens of hours)
+		cbi  portb,1	;clears bit 1 of port b, enables digit 1
+		rcall delay_21k	;call delay_21k, save current program address
+		sbi portb,1		;disables digit 1
+		out ddrd,r22	;moves data from r22 to port D (ones of hours)
+		cbi portb,2		;clears bit 2 of port b, enables digit 2
+		rcall delay_21k	;call delay_21k, save current program address
+		sbi portb,2		;disables digit 2
+		mov r23,mins	;copy the minutes to r23
+		rcall get_segs	;call get_segs, save current program address
+		out ddrd,r24	;moves data from r24 to port D (tens of minutes)
+		cbi  portb,6	;clears bit 6 of port b, enables digit 3
+		rcall delay_21k	;call delay_21k, save current program address
+		sbi portb,6		;disables digit 3
+		out ddrd,r25	;moves data from r25 to port D (ones of minutes)
+		cbi portb,7		;clears bit 7 of port b, enables digit 4
+		rcall delay_21k	;call delay_21k, save current program address
+		sbi portb,7		;disables digit 4
+
+minutes:
+		clr secs		;reset secs to 0
+		inc mins		;add one to mins
+		cpi mins,60		;compare mins to 60
+		breq hours		;jump to hours when mins equal to 60
+		brne display	;jump to display when mins does not equal 60
+
+hours:
+		clr mins		;reset mins to 0
+		inc hrs			;add one to hrs
+		cpi hrs,24		;compare hrs to 24
+		breq reset		;jump to reset when hrs equal to 24
+		brne display;	;jump to display when hrs does not equal 24
+
+reset:
+		clr hrs			;resets hrs to 0
+
+delay_21k:
+		rcall delay		;calls delay 21 times
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		rcall delay
+		ret				;return
+
+delay:               	;the label that identifies the subroutine to the assembler
+    clr r31             ;initialize register 31 (this can be any unused register)
+delay_loop:             ;a label for the brne instruction
+    inc r31             ;increment r31
+    cpi r31,0xf9        ;compare r31 to the final value
+    brne delay_loop     ;jump to delay_loop if the count has not reached the final value
+    ret                 ;return. The microcontroller 'remembers' where it came from
+    
+//Code from below was written by professor	
+    
+/*get_segs_m takes an argument in scr and returns the most significant LED
+  segments (segs_h) and least significant LED segment (segs_l). The scr 
+  register is 0 to 59 for minutes 
+  
+  		writes: clr, tens,zl, zh, segs_l, segs_h	*/
+get_segs:
+	clr r0				;clear tens register
+div_m:
+	cpi r20,10			;bigger than ten?		
+	brlo done_div_m		;	no, done
+	inc r0				;increment tens count
+	subi r20,10			;subtract 10 from scr 
+	rjmp div_m          ;repeat until r20 is less than 10
+done_div_m:
+	ldi zh,high(seg_table<<1)	;load z register for indirect read
+	ldi zl,low(seg_table<<1)
+	add zl,r0			;compute offset into the table
+	brcc nc1_m			;carry required?
+	inc zh				;carry
+nc1_m:
+	lpm r21,z			;read segments from data table
+	ldi zh,high(seg_table<<1)	;load z register for indirect read
+	ldi zl,low(seg_table<<1)
+	add zl,r20			;compute offset into the table
+	brcc nc2_m			;carry required?
+	inc zh				;carry
+nc2_m:
+	lpm r22,z			;read segments from data table
+	ret	                ;return
+// initialize LED segment table
+seg_table:		
+	.dw 0xeb09				;1,0
+	.dw 0xc185				;3,2
+	.dw	0x5163				;5,4
+	.dw 0xcb11				;7,6
+	.dw 0x4101				;9,8
+	.dw 0x00ff				;on,off
